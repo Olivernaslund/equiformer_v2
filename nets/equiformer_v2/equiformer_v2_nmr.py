@@ -62,7 +62,6 @@ class EquiformerV2_NMR(BaseModel):
 
     Args:
         use_pbc (bool):         Use periodic boundary conditions
-        regress_forces (bool):  Compute forces
         otf_graph (bool):       Compute graph On The Fly (OTF)
         max_neighbors (int):    Maximum number of neighbors per atom
         max_radius (float):     Maximum distance between nieghboring atoms in Angstroms
@@ -75,6 +74,7 @@ class EquiformerV2_NMR(BaseModel):
         attn_alpha_head (int):      Number of channels for alpha vector in each attention head
         attn_value_head (int):      Number of channels for value vector in each attention head
         ffn_hidden_channels (int):  Number of hidden channels used during feedforward network
+        
         norm_type (str):            Type of normalization layer (['layer_norm', 'layer_norm_sh', 'rms_norm_sh'])
 
         lmax_list (int):              List of maximum degree of the spherical harmonics (1 to 10)
@@ -105,11 +105,7 @@ class EquiformerV2_NMR(BaseModel):
     """
     def __init__(
         self,
-        num_atoms,      # not used
-        bond_feat_dim,  # not used
-        num_targets,    # not used
         use_pbc=True,
-        regress_forces=True,
         otf_graph=True,
         max_neighbors=500,
         max_radius=5.0,
@@ -136,7 +132,6 @@ class EquiformerV2_NMR(BaseModel):
         share_atom_edge_embedding=False,
         use_m_share_rad=False,
         distance_function="gaussian",
-        num_distance_basis=512, 
 
         attn_activation='scaled_silu',
         use_s2_act_attn=False, 
@@ -154,8 +149,9 @@ class EquiformerV2_NMR(BaseModel):
     ):
         super().__init__()
 
+        self.regress_forces = False #Not used but BaseModle ocpmodels requires it :/
+
         self.use_pbc = use_pbc
-        self.regress_forces = regress_forces
         self.otf_graph = otf_graph
         self.max_neighbors = max_neighbors
         self.max_radius = max_radius
@@ -187,7 +183,6 @@ class EquiformerV2_NMR(BaseModel):
             self.block_use_atom_edge_embedding = self.use_atom_edge_embedding
         self.use_m_share_rad = use_m_share_rad
         self.distance_function = distance_function
-        self.num_distance_basis = num_distance_basis
 
         self.attn_activation = attn_activation
         self.use_s2_act_attn = use_s2_act_attn
@@ -312,42 +307,31 @@ class EquiformerV2_NMR(BaseModel):
         
         # Output blocks for energy and forces
         self.norm = get_normalization_layer(self.norm_type, lmax=max(self.lmax_list), num_channels=self.sphere_channels)
-        self.energy_block = FeedForwardNetwork(
+    
+
+        self.force_block = SO2EquivariantGraphAttention(
             self.sphere_channels,
-            self.ffn_hidden_channels, 
+            self.attn_hidden_channels,
+            self.num_heads, 
+            self.attn_alpha_channels,
+            self.attn_value_channels, 
             1,
             self.lmax_list,
             self.mmax_list,
-            self.SO3_grid,  
-            self.ffn_activation,
+            self.SO3_rotation, 
+            self.mappingReduced, 
+            self.SO3_grid, 
+            self.max_num_elements,
+            self.edge_channels_list,
+            self.block_use_atom_edge_embedding, 
+            self.use_m_share_rad,
+            self.attn_activation, 
+            self.use_s2_act_attn, 
+            self.use_attn_renorm,
             self.use_gate_act,
-            self.use_grid_mlp,
-            self.use_sep_s2_act
+            self.use_sep_s2_act,
+            alpha_drop=0.0
         )
-        if self.regress_forces:
-            self.force_block = SO2EquivariantGraphAttention(
-                self.sphere_channels,
-                self.attn_hidden_channels,
-                self.num_heads, 
-                self.attn_alpha_channels,
-                self.attn_value_channels, 
-                1,
-                self.lmax_list,
-                self.mmax_list,
-                self.SO3_rotation, 
-                self.mappingReduced, 
-                self.SO3_grid, 
-                self.max_num_elements,
-                self.edge_channels_list,
-                self.block_use_atom_edge_embedding, 
-                self.use_m_share_rad,
-                self.attn_activation, 
-                self.use_s2_act_attn, 
-                self.use_attn_renorm,
-                self.use_gate_act,
-                self.use_sep_s2_act,
-                alpha_drop=0.0
-            )
             
         self.apply(self._init_weights)
         self.apply(self._uniform_init_rad_func_linear_weights)
@@ -445,30 +429,16 @@ class EquiformerV2_NMR(BaseModel):
         x.embedding = self.norm(x.embedding)
 
         ###############################################################
-        # Energy estimation
-        ###############################################################
-        node_energy = self.energy_block(x) 
-        node_energy = node_energy.embedding.narrow(1, 0, 1)
-        energy = torch.zeros(len(data.natoms), device=node_energy.device, dtype=node_energy.dtype)
-        energy.index_add_(0, data.batch, node_energy.view(-1))
-        energy = energy / _AVG_NUM_NODES
-
-        ###############################################################
         # Chemical Shielding prediction
         ###############################################################
-        if self.regress_forces:
-            forces = self.force_block(x,
-                atomic_numbers,
-                edge_distance,
-                edge_index)
-            forces = forces.embedding[:, 0, 0]
-            #forces = forces.view(-1, 3)            
-            
-        #if not self.regress_forces:
-        #    return energy
-        #else:
-        #    return energy, forces
-        return forces
+
+        shieldings = self.force_block(x,
+            atomic_numbers,
+            edge_distance,
+            edge_index)
+        shieldings = shieldings.embedding[:, 0, 0]
+        
+        return shieldings
 
 
     # Initialize the edge rotation matrics
