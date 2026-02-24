@@ -114,7 +114,7 @@ class EquiformerV2_NMRTensor(BaseModel):
 
         num_layers=2, #12
         sphere_channels=128, #128
-        attn_hidden_channels=128,  #128
+        attn_hidden_channels=64,  #128
         num_heads=8, #8
         attn_alpha_channels=32, #32
         attn_value_channels=16, #16
@@ -329,6 +329,8 @@ class EquiformerV2_NMRTensor(BaseModel):
             alpha_drop=0.0
         )
 
+        self.nmr_linear = SO3_LinearV2(self.sphere_channels, 1, self.lmax_list[0], True)
+
         self.ct =  CartesianTensor("ij=ji")   # symmetric tensor
         
         # Output blocks for energy and forces
@@ -433,16 +435,18 @@ class EquiformerV2_NMRTensor(BaseModel):
         # Chemical Shielding prediction
         ###############################################################)
 
-        irreps_nmr = self.nmr_block(x,
-            atomic_numbers,
-            edge_distance,
-            edge_index)
+        #irreps_nmr = self.nmr_block(x,
+        #    atomic_numbers,
+        #    edge_distance,
+        #    edge_index)
 
-        irreps_nmr = irreps_nmr.embedding[:,[0,4,5,6,7,8],:].squeeze(-1)  # Take l=0 and l=2 components to construct symmetric tensor
+        #irreps_nmr = irreps_nmr.embedding[:,[0,4,5,6,7,8],:].squeeze(-1)  # Take l=0 and l=2 components to construct symmetric tensor
         
+        irreps_nmr = self.nmr_linear(x).embedding[:,[0,4,5,6,7,8],:].squeeze(-1)
+
         T = self.ct.to_cartesian(irreps_nmr)
 
-        return T
+        return T #, irreps_nmr[:,0]
 
 
     # Initialize the edge rotation matrics
