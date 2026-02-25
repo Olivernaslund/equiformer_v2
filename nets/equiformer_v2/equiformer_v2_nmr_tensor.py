@@ -142,6 +142,8 @@ class EquiformerV2_NMRTensor(BaseModel):
         use_grid_mlp=False, 
         use_sep_s2_act=True,
 
+        multi_head=False,
+
         alpha_drop=0.1,
         drop_path_rate=0.05, 
         proj_drop=0.0, 
@@ -192,6 +194,8 @@ class EquiformerV2_NMRTensor(BaseModel):
         self.use_gate_act = use_gate_act
         self.use_grid_mlp = use_grid_mlp
         self.use_sep_s2_act = use_sep_s2_act
+
+        self.multi_head = multi_head
         
         self.alpha_drop = alpha_drop
         self.drop_path_rate = drop_path_rate
@@ -305,31 +309,16 @@ class EquiformerV2_NMRTensor(BaseModel):
             )
             self.blocks.append(block)
 
-        self.nmr_block = SO2EquivariantGraphAttention(
-            self.sphere_channels,
-            self.attn_hidden_channels,
-            self.num_heads, 
-            self.attn_alpha_channels,
-            self.attn_value_channels, 
-            1,
-            self.lmax_list,
-            self.mmax_list,
-            self.SO3_rotation, 
-            self.mappingReduced, 
-            self.SO3_grid, 
-            self.max_num_elements,
-            self.edge_channels_list,
-            self.block_use_atom_edge_embedding, 
-            self.use_m_share_rad,
-            self.attn_activation, 
-            self.use_s2_act_attn, 
-            self.use_attn_renorm,
-            self.use_gate_act,
-            self.use_sep_s2_act,
-            alpha_drop=0.0
-        )
+        if self.multi_head == True:
+            unique_atomic_numbers = [1,6,7,8,9,11,12,15,16,17,19,20]
 
-        self.nmr_linear = SO3_LinearV2(self.sphere_channels, 1, self.lmax_list[0], True)
+            self.heads = torch.nn.ModuleDict({
+            str(Z): SO3_LinearV2(self.sphere_channels, 1, self.lmax_list[0], True)  # 3×3 tensor
+            for Z in unique_atomic_numbers
+            })
+        else:
+            self.nmr_linear = SO3_LinearV2(self.sphere_channels, 1, self.lmax_list[0], True)
+
 
         self.ct =  CartesianTensor("ij=ji")   # symmetric tensor
         
@@ -434,15 +423,30 @@ class EquiformerV2_NMRTensor(BaseModel):
         ###############################################################
         # Chemical Shielding prediction
         ###############################################################)
+        print(x.embedding.shape)
 
-        #irreps_nmr = self.nmr_block(x,
-        #    atomic_numbers,
-        #    edge_distance,
-        #    edge_index)
+        if self.multi_head == True:
+            outputs = torch.zeros_like(x.embedding[:, :, :1])  
 
-        #irreps_nmr = irreps_nmr.embedding[:,[0,4,5,6,7,8],:].squeeze(-1)  # Take l=0 and l=2 components to construct symmetric tensor
-        
-        irreps_nmr = self.nmr_linear(x).embedding[:,[0,4,5,6,7,8],:].squeeze(-1)
+            for Z in torch.unique(data.atomic_numbers):
+            
+                z_int = int(Z)
+                mask = data.atomic_numbers == Z
+
+                masked_x = SO3_Embedding(
+                    mask.sum(),
+                    self.lmax_list,
+                    self.sphere_channels,
+                    x.embedding.device,
+                    x.embedding.dtype,
+                )
+                masked_x.embedding = x.embedding[mask]
+
+                outputs[mask] = self.heads[str(z_int)](masked_x).embedding
+            irreps_nmr = outputs[:,[0,4,5,6,7,8],:].squeeze(-1)
+            print("Multihead")
+        else:
+            irreps_nmr = self.nmr_linear(x).embedding[:,[0,4,5,6,7,8],:].squeeze(-1)
 
         T = self.ct.to_cartesian(irreps_nmr)
 
