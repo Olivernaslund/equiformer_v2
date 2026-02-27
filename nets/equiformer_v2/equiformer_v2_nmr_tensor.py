@@ -423,7 +423,6 @@ class EquiformerV2_NMRTensor(BaseModel):
         ###############################################################
         # Chemical Shielding prediction
         ###############################################################)
-        print(x.embedding.shape)
 
         if self.multi_head == True:
             outputs = torch.zeros_like(x.embedding[:, :, :1])  
@@ -444,7 +443,6 @@ class EquiformerV2_NMRTensor(BaseModel):
 
                 outputs[mask] = self.heads[str(z_int)](masked_x).embedding
             irreps_nmr = outputs[:,[0,4,5,6,7,8],:].squeeze(-1)
-            print("Multihead")
         else:
             irreps_nmr = self.nmr_linear(x).embedding[:,[0,4,5,6,7,8],:].squeeze(-1)
 
