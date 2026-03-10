@@ -351,7 +351,7 @@ class EquiformerV2_NMRTensor(BaseModel):
         if do_timing == True:
             if self.device == 'cuda':
                 torch.cuda.synchronize()
-            print(f"Graph generation took {time.time() - start_time:.2f} seconds")
+            print(f"Graph generation took {time.time() - start_time:.5f} seconds")
             if self.device == 'cuda':
                 torch.cuda.synchronize()
             start_time = time.time()
@@ -457,7 +457,7 @@ class EquiformerV2_NMRTensor(BaseModel):
         if do_timing == True:
             if self.device == 'cuda':
                 torch.cuda.synchronize()
-            print(f"Forward pass took {time.time() - start_time:.2f} seconds")
+            print(f"Forward pass took {time.time() - start_time:.5f} seconds")
 
         return irreps_nmr #, irreps_nmr[:,0]
 
