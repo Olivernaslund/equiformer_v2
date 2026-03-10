@@ -335,6 +335,8 @@ class EquiformerV2_NMRTensor(BaseModel):
         pos = data.pos
 
         if do_timing == True:
+            if self.device == 'cuda':
+                torch.cuda.synchronize()
             start_time = time.time()
 
         (
@@ -347,7 +349,12 @@ class EquiformerV2_NMRTensor(BaseModel):
         ) = self.generate_graph(data)
 
         if do_timing == True:
+            if self.device == 'cuda':
+                torch.cuda.synchronize()
             print(f"Graph generation took {time.time() - start_time:.2f} seconds")
+            if self.device == 'cuda':
+                torch.cuda.synchronize()
+            start_time = time.time()
 
         ###############################################################
         # Initialize data structures
@@ -448,6 +455,8 @@ class EquiformerV2_NMRTensor(BaseModel):
             irreps_nmr = self.nmr_linear(x).embedding[:,:9,:].squeeze(-1)
 
         if do_timing == True:
+            if self.device == 'cuda':
+                torch.cuda.synchronize()
             print(f"Forward pass took {time.time() - start_time:.2f} seconds")
 
         return irreps_nmr #, irreps_nmr[:,0]
