@@ -325,7 +325,7 @@ class EquiformerV2_NMRTensor(BaseModel):
 
 
     @conditional_grad(torch.enable_grad())
-    def forward(self, data):
+    def forward(self, data, do_timing=False):
         self.batch_size = len(data.natoms)
         self.dtype = data.pos.dtype
         self.device = data.pos.device
@@ -333,6 +333,9 @@ class EquiformerV2_NMRTensor(BaseModel):
         atomic_numbers = data.atomic_numbers.long()
         num_atoms = len(atomic_numbers)
         pos = data.pos
+
+        if do_timing == True:
+            start_time = time.time()
 
         (
             edge_index,
@@ -342,6 +345,9 @@ class EquiformerV2_NMRTensor(BaseModel):
             _,  # cell offset distances
             neighbors,
         ) = self.generate_graph(data)
+
+        if do_timing == True:
+            print(f"Graph generation took {time.time() - start_time:.2f} seconds")
 
         ###############################################################
         # Initialize data structures
@@ -441,6 +447,8 @@ class EquiformerV2_NMRTensor(BaseModel):
         else:
             irreps_nmr = self.nmr_linear(x).embedding[:,:9,:].squeeze(-1)
 
+        if do_timing == True:
+            print(f"Forward pass took {time.time() - start_time:.2f} seconds")
 
         return irreps_nmr #, irreps_nmr[:,0]
 
